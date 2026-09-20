@@ -1,0 +1,5 @@
+/target/
+/dist/
+/backend/
+__pycache__/
+.pytest_cache/

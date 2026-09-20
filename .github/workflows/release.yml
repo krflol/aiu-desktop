@@ -1,0 +1,105 @@
+name: Release desktop bundles
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+env:
+  RUSTUP_TOOLCHAIN: 1.88.0
+
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+
+  package:
+    needs: verify
+    name: Package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            artifact: desktop-linux-amd64
+            cli_targets: '--cli-target linux-amd64 --cli-target linux-arm64 --cli-target windows-amd64 --cli-target windows-arm64'
+          - os: windows-latest
+            artifact: desktop-windows-amd64
+            cli_targets: ''
+          - os: macos-15
+            artifact: desktop-macos-arm64
+            cli_targets: '--cli-target macos-arm64'
+          - os: macos-15-intel
+            artifact: desktop-macos-amd64
+            cli_targets: '--cli-target macos-amd64'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Checkout pinned Go backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository=$(python -c 'import json; print(json.load(open("backend.json"))["source_repository"])')
+          revision=$(python -c 'import json; print(json.load(open("backend.json"))["revision"])')
+          test "$revision" != PLACEHOLDER
+          git clone "$repository" backend
+          git -C backend fetch --depth 1 origin "$revision"
+          git -C backend checkout --detach "$revision"
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes libgtk-3-dev libayatana-appindicator3-dev
+      - name: Install Rust 1.88
+        shell: bash
+        run: rustup toolchain install 1.88.0 --profile minimal
+      - name: Validate release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$version" = "$(python -c 'import tomllib; print(tomllib.load(open("Cargo.toml","rb"))["package"]["version"])')"
+      - name: Build bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          python scripts/package-desktop.py --backend-source backend --version "$version" --output dist ${{ matrix.cli_targets }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Verify, hash, and publish desktop bundles
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          archives=(dist/*.zip dist/*.tar.gz)
+          ((${#archives[@]} == 10))
+          for archive in "${archives[@]}"; do
+            sha256sum "$archive" > "$archive.sha256"
+            sha256sum --check "$archive.sha256"
+          done
+          cp install.py backend.json dist/
+          (cd dist && sha256sum install.py backend.json > installer-checksums.txt)
+          gh release create "$RELEASE_TAG" --generate-notes --repo "$GITHUB_REPOSITORY"
+          gh release upload "$RELEASE_TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"

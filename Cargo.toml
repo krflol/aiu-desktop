@@ -1,0 +1,39 @@
+[package]
+name = "aiu-desktop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+description = "Native AIU account frontend"
+
+[[bin]]
+name = "aiu-desktop"
+path = "src/main.rs"
+
+[features]
+default = []
+screenshot = ["dep:image"]
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+clap = { version = "4", features = ["derive", "env"] }
+eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+raw-window-handle = "0.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tray-icon = { version = "0.24.2", default-features = false, features = ["gtk"] }
+image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+
+[profile.release]
+lto = "thin"
+strip = true
+
+[dev-dependencies]
+tempfile = "3"
