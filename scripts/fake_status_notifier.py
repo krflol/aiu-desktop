@@ -49,13 +49,13 @@ def method_call(conn, sender, path, interface, method, params, invocation):
         if value.startswith("/"): registered.update(service=sender, path=value)
         else:
             parts = value.split("/", 1); registered.update(service=parts[0], path="/" + parts[1] if len(parts) == 2 else "/StatusNotifierItem")
-        invocation.return_value(GLib.Variant("()")); print("registered", flush=True)
+        invocation.return_value(GLib.Variant("()", ())); print("registered", flush=True)
     elif interface == "org.freedesktop.DBus.Properties" and method == "Get":
         invocation.return_value(GLib.Variant("(v)", (GLib.Variant("b", True),)))
     elif interface == "org.freedesktop.DBus.Properties" and method == "GetAll":
         invocation.return_value(GLib.Variant("(a{sv})", ({"IsStatusNotifierHostRegistered": GLib.Variant("b", True)},)))
     elif interface == "org.aiu.Smoke" and method == "Invoke":
-        try: invoke(params.unpack()[0]); invocation.return_value(GLib.Variant("()"))
+        try: invoke(params.unpack()[0]); invocation.return_value(GLib.Variant("()", ()))
         except Exception as error: invocation.return_dbus_error("org.aiu.Smoke.Error", str(error))
 
 node = Gio.DBusNodeInfo.new_for_xml(XML)
