@@ -44,7 +44,7 @@ jobs:
           git -C backend checkout --detach "$revision"
       - name: Linux dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install --yes libgtk-3-dev libayatana-appindicator3-dev xvfb openbox dbus-x11 xdotool python3-gi
+        run: sudo apt-get update && sudo apt-get install --yes libgtk-3-dev libayatana-appindicator3-dev libxkbcommon-x11-0 xvfb xauth x11-utils openbox dbus-x11 xdotool wmctrl python3-gi
       - name: Rust toolchain
         shell: bash
         run: rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
@@ -76,4 +76,5 @@ jobs:
         run: python -m pytest -q
       - name: Linux desktop smoke
         if: runner.os == 'Linux'
+        timeout-minutes: 5
         run: bash scripts/test-linux-desktop.sh

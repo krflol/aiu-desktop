@@ -19,8 +19,9 @@ macOS Go builds retain cgo for Keychain. Windows/Linux CLI binaries need no GUI.
 
 ## Runtime requirements
 
-Linux desktop needs GTK 3, Ayatana AppIndicator 3, a session bus, and a graphical
-display. Ubuntu packages are libgtk-3-0 and libayatana-appindicator3-1; source
+Linux desktop needs GTK 3, Ayatana AppIndicator 3, xkbcommon for X11, a session
+bus, and a graphical display. Ubuntu packages are libgtk-3-0,
+libayatana-appindicator3-1, and libxkbcommon-x11-0; source
 builds additionally need libgtk-3-dev and libayatana-appindicator3-dev. A
 StatusNotifier host enables close-to-tray. Without one, the application stays
 reachable and closing its window quits. CI tests both cases with Xvfb, Openbox,

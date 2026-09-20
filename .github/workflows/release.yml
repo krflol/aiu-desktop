@@ -103,11 +103,17 @@ jobs:
           shopt -s nullglob
           archives=(dist/*.zip dist/*.tar.gz)
           ((${#archives[@]} == 10))
-          for archive in "${archives[@]}"; do
-            sha256sum "$archive" > "$archive.sha256"
-            sha256sum --check "$archive.sha256"
-          done
+          (
+            cd dist
+            for archive in *.zip *.tar.gz; do
+              sha256sum "$archive" > "$archive.sha256"
+              sha256sum --check "$archive.sha256"
+            done
+          )
           cp install.py backend.json dist/
           (cd dist && sha256sum install.py backend.json > installer-checksums.txt)
-          gh release create "$RELEASE_TAG" --generate-notes --repo "$GITHUB_REPOSITORY"
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --draft --notes-file "docs/releases/$RELEASE_TAG.md" --repo "$GITHUB_REPOSITORY"
+          fi
           gh release upload "$RELEASE_TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          gh release edit "$RELEASE_TAG" --draft=false --repo "$GITHUB_REPOSITORY"
