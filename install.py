@@ -171,19 +171,27 @@ def install(args):
                 total += len(chunk)
                 if total > MAX_DOWNLOAD: raise RuntimeError("download exceeds installer limit")
                 dst.write(chunk)
-        verify_checksum(archive, asset, rel); stage = Path(tempfile.mkdtemp(prefix=".aiu-stage-", dir=str(prefix))); extract_safe(archive, stage)
-        try: os.rename(stage, target)
-        except FileExistsError: raise RuntimeError(f"install target already exists: {target}")
+        verify_checksum(archive, asset, rel)
+        with tempfile.TemporaryDirectory(prefix=".aiu-stage-", dir=str(prefix)) as staging:
+            stage = Path(staging) / "payload"
+            extract_safe(archive, stage)
+            if target.exists():
+                raise RuntimeError(f"install target already exists: {target}")
+            try:
+                os.rename(stage, target)
+            except FileExistsError:
+                raise RuntimeError(f"install target already exists: {target}")
     print(f"installed {target}\nlaunch: {launch_command(target, kind)}")
 
 def launch_command(target, kind):
     if kind == "swift": return "brew services info getparable/tap/aiu"
     apps = sorted(target.rglob("*.app"))
     if apps: return f'open "{apps[0]}"'
-    names = ["aiu.exe", "aiu"]
+    names = ["aiu-desktop.exe", "aiu-desktop"] if kind == "rust" else ["aiu.exe", "aiu"]
     for name in names:
         found = next(target.rglob(name), None)
-        if found: return subprocess.list2cmdline([str(found)]) if host_platform() == "windows" else f'"{found}"'
+        if found and found.is_file():
+            return f'& "{found}"' if host_platform() == "windows" else f'"{found}"'
     return f'cd "{target}" and run the installed executable'
 
 def main(argv=None):

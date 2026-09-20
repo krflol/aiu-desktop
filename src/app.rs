@@ -170,6 +170,12 @@ impl Panel {
 }
 impl eframe::App for Panel {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // Once the child has settled, accept the native close event. Re-entering
+        // close-to-tray handling here would cancel our own Quit indefinitely.
+        if self.quitting && self.pending.is_none() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
         if !self.tray_initialized {
             self.tray_initialized = true;
             match Tray::new(ctx.clone(), frame) {

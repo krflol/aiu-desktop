@@ -89,11 +89,9 @@ impl Tray {
                             while gtk::events_pending() {
                                 gtk::main_iteration_do(false);
                             }
-                            if stopped
-                                .recv_timeout(std::time::Duration::from_millis(100))
-                                .is_ok()
-                            {
-                                break;
+                            match stopped.recv_timeout(std::time::Duration::from_millis(100)) {
+                                Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                                Err(mpsc::RecvTimeoutError::Timeout) => {}
                             }
                         }
                     }
