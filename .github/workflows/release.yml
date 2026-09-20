@@ -56,6 +56,14 @@ jobs:
       - name: Install Rust 1.88
         shell: bash
         run: rustup toolchain install 1.88.0 --profile minimal
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-release-${{ runner.os }}-${{ runner.arch }}-1.88-${{ hashFiles('Cargo.lock') }}
+          restore-keys: rust-debug-${{ runner.os }}-${{ runner.arch }}-1.88-
       - name: Validate release version
         shell: bash
         run: |
