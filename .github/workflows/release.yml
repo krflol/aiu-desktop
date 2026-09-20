@@ -3,16 +3,25 @@ name: Release desktop bundles
 on:
   push:
     tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to verify, package, and publish
+        type: string
+        required: true
 
 permissions:
   contents: read
 
 env:
   RUSTUP_TOOLCHAIN: 1.88.0
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   verify:
     uses: ./.github/workflows/ci.yml
+    with:
+      source_ref: ${{ inputs.tag || github.ref }}
 
   package:
     needs: verify
@@ -36,6 +45,11 @@ jobs:
             cli_targets: '--cli-target macos-amd64'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.13'
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.27.1'
@@ -68,14 +82,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           test "$version" = "$(python -c 'import tomllib; print(tomllib.load(open("Cargo.toml","rb"))["package"]["version"])')"
       - name: Build bundle
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           python scripts/package-desktop.py --backend-source backend --version "$version" --output dist ${{ matrix.cli_targets }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -90,6 +104,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist
@@ -97,7 +113,6 @@ jobs:
       - name: Verify, hash, and publish desktop bundles
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           shopt -s nullglob
