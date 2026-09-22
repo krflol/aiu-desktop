@@ -40,7 +40,7 @@ pub struct Account {
     pub banked_resets: Option<BankedResets>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BankedResets {
     #[serde(default, rename = "availableCount")]
     pub available_count: Option<u32>,
@@ -58,8 +58,34 @@ pub struct BankedResets {
     pub pending_request: Option<PendingResetRequest>,
     #[serde(default, rename = "autoReset")]
     pub auto_reset: bool,
+    #[serde(
+        default = "default_auto_reset_threshold",
+        rename = "autoResetThresholdPercent"
+    )]
+    pub auto_reset_threshold_percent: u8,
     #[serde(default, rename = "autoResetStatus")]
     pub auto_reset_status: String,
+}
+
+impl Default for BankedResets {
+    fn default() -> Self {
+        Self {
+            available_count: None,
+            credits: None,
+            fetched_at: String::new(),
+            stale: String::new(),
+            error: String::new(),
+            can_redeem: false,
+            pending_request: None,
+            auto_reset: false,
+            auto_reset_threshold_percent: default_auto_reset_threshold(),
+            auto_reset_status: String::new(),
+        }
+    }
+}
+
+fn default_auto_reset_threshold() -> u8 {
+    1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -215,6 +241,7 @@ mod tests {
         );
         assert!(available.auto_reset);
         assert!(available.credits.as_ref().unwrap()[0].can_redeem);
+        assert_eq!(available.auto_reset_threshold_percent, 5);
         let pending = banked[1]
             .banked_resets
             .as_ref()
@@ -226,6 +253,7 @@ mod tests {
             "12345678-1234-4234-8234-123456789abc"
         );
         assert!(!pending.auto_reset);
+        assert_eq!(pending.auto_reset_threshold_percent, 0);
         let _: Event =
             serde_json::from_str(include_str!("../tests/fixtures/frontend/cancelled.json"))
                 .expect("cancelled fixture");
@@ -241,6 +269,7 @@ mod tests {
         assert_eq!(resets.available_count, None);
         assert!(resets.credits.is_none());
         assert!(!resets.auto_reset);
+        assert_eq!(resets.auto_reset_threshold_percent, 1);
     }
 
     #[test]
@@ -250,5 +279,14 @@ mod tests {
         assert_eq!(resets.available_count, Some(9));
         assert_eq!(resets.credits.unwrap().len(), 1);
         assert!(resets.auto_reset);
+    }
+
+    #[test]
+    fn auto_reset_threshold_defaults_to_one_but_preserves_explicit_zero() {
+        let defaulted: BankedResets = serde_json::from_str(r#"{}"#).unwrap();
+        let zero: BankedResets =
+            serde_json::from_str(r#"{"autoResetThresholdPercent":0}"#).unwrap();
+        assert_eq!(defaulted.auto_reset_threshold_percent, 1);
+        assert_eq!(zero.auto_reset_threshold_percent, 0);
     }
 }

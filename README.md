@@ -50,10 +50,13 @@ Codex cards show the reset balance and cached credit details. **Details / refres
 loads the provider's credit list. **Use a reset** asks for confirmation; uncertain
 results offer **Retry same request** to avoid spending another credit.
 
-Each Codex account has an **Auto reset at 1% remaining or less** toggle, off by
-default. The shared Go backend checks fresh usage, uses an available banked reset,
-and waits for usage to recover below the threshold before another automatic
-spend. It works while desktop/tray, CLI status, or watch collects usage, subject
+Each Codex account has an **Auto reset** toggle, off by default, and a saved
+remaining-quota threshold from **0–99%**, defaulting to **1%**. Edit the percentage
+and choose **Save threshold**; zero means fully exhausted. Saving only the
+threshold preserves the enabled state. The shared Go backend checks fresh usage,
+uses an available banked reset, and waits for remaining quota to rise above both
+the current and prior-attempt thresholds before another automatic spend.
+It works while desktop/tray, CLI status, or watch collects usage, subject
 to the shared polling and provider cooldowns. Enabling it authorizes consumption
 of banked resets, which reset eligible five-hour/weekly limits and move the weekly
 reset date. See [reset policy and recovery](docs/banked-resets.md).
