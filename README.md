@@ -33,8 +33,9 @@ settings. Keep the bundled `aiu` and `aiu-desktop` executables together.
 ## Backend and development
 
 [`backend.json`](backend.json) pins the exact Go source used by packaging.
-Until [upstream PR #11](https://github.com/getparable/aiu/pull/11) merges, the pin
-points to the contributor's portable Go branch. Packages include its provenance
+[Upstream PR #11](https://github.com/getparable/aiu/pull/11) merged the portable Go
+backend. The pin includes [banked reset support in upstream PR #13](https://github.com/getparable/aiu/pull/13)
+based on upstream v0.2.0. Packages include its provenance
 in `BACKEND.txt`. The [versioned process contract](docs/frontend-contract.md)
 keeps frontend releases independent of backend implementation details.
 
@@ -42,6 +43,22 @@ Cancel and Quit close pending browser waits and allow an already-started Go
 credential exchange to finish saving. Closing a browser tab itself cannot be
 detected. Close-to-tray is available when a tray host exists; without a Linux
 host the window remains reachable and closing it quits.
+
+## Banked Codex resets
+
+Codex cards show the reset balance and cached credit details. **Details / refresh**
+loads the provider's credit list. **Use a reset** asks for confirmation; uncertain
+results offer **Retry same request** to avoid spending another credit.
+
+Each Codex account has an **Auto reset at 1% remaining or less** toggle, off by
+default. The shared Go backend checks fresh usage, uses an available banked reset,
+and waits for usage to recover below the threshold before another automatic
+spend. It works while desktop/tray, CLI status, or watch collects usage, subject
+to the shared polling and provider cooldowns. Enabling it authorizes consumption
+of banked resets, which reset eligible five-hour/weekly limits and move the weekly
+reset date. See [reset policy and recovery](docs/banked-resets.md).
+
+## Build from source
 
 Build and test with Rust 1.88:
 
@@ -62,7 +79,7 @@ is no PATH lookup or environment override for selecting a backend. Fixture mode
 never reads real accounts. To package a pinned checkout:
 
 ```sh
-python3 scripts/package-desktop.py --backend-source ../aiu-go-windows --version 0.1.0 --output dist
+python3 scripts/package-desktop.py --backend-source ../aiu-go-windows --version 0.2.0 --output dist
 ```
 
 Native desktop bundles target Windows/Linux amd64 and macOS amd64/arm64. See

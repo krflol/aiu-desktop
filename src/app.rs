@@ -1,6 +1,6 @@
 use crate::{
     process::{Message, Operation},
-    protocol::Account,
+    protocol::{Account, PendingResetRequest},
     tray::{Command, Tray},
 };
 use anyhow::{Result, anyhow};
@@ -55,6 +55,9 @@ enum Action {
     Switch(String),
     Remove(String),
     Sync,
+    Resets(String),
+    Reset(String, Option<String>),
+    AutoReset(String, bool),
 }
 struct Panel {
     backend: Option<PathBuf>,
@@ -70,6 +73,9 @@ struct Panel {
     tray_initialized: bool,
     quitting: bool,
     selected: Option<String>,
+    reset_confirmation: Option<(String, Option<String>)>,
+    reset_intents: std::collections::HashMap<String, PendingResetRequest>,
+    active_reset_key: Option<String>,
 }
 impl Panel {
     fn new(
@@ -92,6 +98,9 @@ impl Panel {
             tray_initialized: false,
             quitting: false,
             selected: None,
+            reset_confirmation: None,
+            reset_intents: std::collections::HashMap::new(),
+            active_reset_key: None,
         };
         if panel.fixture.is_some() {
             panel.message = "Sample data — backend actions are disabled".into();
@@ -113,6 +122,10 @@ impl Panel {
         let Some(backend) = self.backend.clone() else {
             return;
         };
+        let active_reset_key = match &action {
+            Action::Reset(key, _) => Some(key.clone()),
+            _ => None,
+        };
         let (name, args) = match action {
             Action::Status => ("status", vec![]),
             Action::Sync => ("sync", vec![]),
@@ -120,11 +133,45 @@ impl Panel {
             Action::Login(p, l) => ("login", vec!["--provider".into(), p, "--label".into(), l]),
             Action::Switch(k) => selector_args("switch", k),
             Action::Remove(k) => selector_args("remove", k),
+            Action::Resets(k) => selector_args("resets", k),
+            Action::Reset(k, credit_id) => {
+                let from_backend = self
+                    .accounts
+                    .iter()
+                    .find(|account| selector(account) == k)
+                    .and_then(|account| account.banked_resets.as_ref())
+                    .and_then(|state| state.pending_request.clone());
+                let intent = get_or_create_reset_intent(
+                    &mut self.reset_intents,
+                    &k,
+                    from_backend,
+                    credit_id,
+                );
+                // A user choice is attached to the ID only when the intent is first created.
+                let mut args = vec!["--provider".into(), "codex".into()];
+                args.extend(k.split_once(':').map(|(_, selector)| selector.to_string()));
+                args.extend([
+                    "--yes".into(),
+                    "--request-id".into(),
+                    intent.request_id.clone(),
+                ]);
+                if let Some(id) = &intent.credit_id {
+                    args.extend(["--credit-id".into(), id.clone()]);
+                }
+                ("reset", args)
+            }
+            Action::AutoReset(k, enabled) => {
+                let mut args = selector_args("auto-reset", k).1;
+                args.extend(["--enabled".into(), enabled.to_string()]);
+                ("auto-reset", args)
+            }
         };
         self.message = "Working…".into();
+        self.active_reset_key = active_reset_key;
         match Operation::start(backend, name, &args) {
             Ok(operation) => self.pending = Some(operation),
             Err(error) => {
+                self.active_reset_key = None;
                 self.message = format!("Could not start AIU: {error}");
                 return;
             }
@@ -141,8 +188,16 @@ impl Panel {
                 accounts,
                 error,
             } => {
+                let completed_reset = self.active_reset_key.take();
                 if ok && let Some(accounts) = accounts {
                     self.accounts = accounts;
+                }
+                if ok && !cancelled {
+                    // A terminal provider response ends the local intent. Errors keep it
+                    // available for an exact-ID retry after an ambiguous result.
+                    if let Some(key) = completed_reset {
+                        self.reset_intents.remove(&key);
+                    }
                 }
                 self.message = if cancelled {
                     "Cancelled".into()
@@ -155,6 +210,7 @@ impl Panel {
                 self.pending = None;
             }
             Message::Failed(e) => {
+                self.active_reset_key = None;
                 self.message = e;
                 self.pending = None;
             }
@@ -319,6 +375,12 @@ impl eframe::App for Panel {
                 for account in &self.accounts {
                     let key = selector(account);
                     let selected = self.selected.as_deref() == Some(key.as_str());
+                    let reset_pending = self.reset_intents.contains_key(&key)
+                        || account
+                            .banked_resets
+                            .as_ref()
+                            .and_then(|resets| resets.pending_request.as_ref())
+                            .is_some();
                     egui::Frame::group(ui.style())
                         .inner_margin(12.0)
                         .show(ui, |ui| {
@@ -394,6 +456,63 @@ impl eframe::App for Panel {
                                     ui.small(format!("Resets {}", window.resets_at));
                                 }
                             }
+                            if account.provider == "codex"
+                                && let Some(resets) = &account.banked_resets
+                            {
+                                    ui.separator();
+                                    ui.horizontal_wrapped(|ui| {
+                                        ui.strong(match resets.available_count {
+                                            Some(count) => format!("Banked resets: {count}"),
+                                            None => "Banked resets: unknown".into(),
+                                        });
+                                        if ui.add_enabled(editable, egui::Button::new("Details / refresh")).clicked() {
+                                            action = Some(Action::Resets(key.clone()));
+                                        }
+                                        if let Some(pending) = self.reset_intents.get(&key)
+                                            .or(resets.pending_request.as_ref()) {
+                                            ui.colored_label(Color32::from_rgb(240, 184, 98), "Reset pending or uncertain");
+                                            if ui.add_enabled(editable, egui::Button::new("Retry same request")).clicked() {
+                                                action = Some(Action::Reset(key.clone(), pending.credit_id.clone()));
+                                            }
+                                        } else if resets.can_redeem && let Some(credits) = &resets.credits {
+                                            if let Some(credit) = credits.iter().find(|credit| credit.can_redeem) {
+                                                let title = if credit.title.is_empty() { "Use a reset" } else { &credit.title };
+                                                if ui.add_enabled(editable, egui::Button::new(title)).clicked() {
+                                                    self.reset_confirmation = Some((key.clone(), Some(credit.id.clone())));
+                                                }
+                                            } else if ui.add_enabled(editable, egui::Button::new("Use next reset")).clicked() {
+                                                self.reset_confirmation = Some((key.clone(), None));
+                                            }
+                                        } else if resets.can_redeem && ui.add_enabled(editable, egui::Button::new("Use next reset")).clicked() {
+                                            self.reset_confirmation = Some((key.clone(), None));
+                                        }
+                                    });
+                                    if !resets.stale.is_empty() { ui.small(format!("Reset data cached: {}", resets.stale)); }
+                                    if !resets.error.is_empty() { ui.colored_label(Color32::from_rgb(241, 129, 129), &resets.error); }
+                                    if let Some(credits) = &resets.credits {
+                                        egui::CollapsingHeader::new(format!("Reset details ({} shown)", credits.len()))
+                                            .id_salt(("reset-details", &key)).show(ui, |ui| {
+                                                for credit in credits {
+                                                    ui.horizontal_wrapped(|ui| {
+                                                        ui.strong(if credit.title.is_empty() { &credit.reset_type } else { &credit.title });
+                                                        ui.weak(&credit.status);
+                                                        if !credit.expires_at.is_empty() { ui.label(format!("Expires {}", credit.expires_at)); }
+                                                        if !reset_pending && resets.can_redeem && credit.can_redeem && ui.add_enabled(editable, egui::Button::new("Use")).clicked() {
+                                                            self.reset_confirmation = Some((key.clone(), Some(credit.id.clone())));
+                                                        }
+                                                    });
+                                                    if !credit.description.is_empty() { ui.small(&credit.description); }
+                                                }
+                                            });
+                                    } else {
+                                        ui.small("Reset details have not been loaded.");
+                                    }
+                                    let mut enabled = resets.auto_reset;
+                                    let toggle = ui.add_enabled(editable, egui::Checkbox::new(&mut enabled, "Auto reset at 1% remaining or less"));
+                                    if toggle.changed() { action = Some(Action::AutoReset(key.clone(), enabled)); }
+                                    ui.small("Off by default. At 1% or less remaining in an eligible 5-hour or weekly window, this may reset both usage windows and move the weekly reset date.");
+                                    if !resets.auto_reset_status.is_empty() { ui.small(format!("Auto reset: {}", resets.auto_reset_status)); }
+                            }
                             if selected {
                                 ui.horizontal(|ui| {
                                     if ui
@@ -420,9 +539,87 @@ impl eframe::App for Panel {
         if let Some(a) = action {
             self.start(a, ctx.clone());
         }
+        if let Some((key, credit_id)) = self.reset_confirmation.clone() {
+            let account = self
+                .accounts
+                .iter()
+                .find(|account| selector(account) == key);
+            let identity = account
+                .map(|account| {
+                    let workspace = if account.org_name.is_empty() {
+                        &account.org
+                    } else {
+                        &account.org_name
+                    };
+                    format!("{} ({})", account.email, workspace)
+                })
+                .unwrap_or_else(|| key.clone());
+            let pending_now = self.reset_intents.contains_key(&key)
+                || account
+                    .and_then(|account| account.banked_resets.as_ref())
+                    .and_then(|resets| resets.pending_request.as_ref())
+                    .is_some();
+            let credit_still_available = account
+                .and_then(|account| account.banked_resets.as_ref())
+                .is_some_and(|resets| {
+                    resets.can_redeem
+                        && credit_id.as_ref().is_none_or(|id| {
+                            resets.credits.as_ref().is_some_and(|credits| {
+                                credits
+                                    .iter()
+                                    .any(|credit| credit.id == *id && credit.can_redeem)
+                            })
+                        })
+                });
+            egui::Window::new("Confirm banked reset")
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label(format!("Use a banked reset for {identity}?"));
+                    ui.colored_label(
+                        Color32::from_rgb(240, 184, 98),
+                        "This can refresh eligible 5-hour and weekly usage windows and move the weekly reset date.",
+                    );
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add_enabled(
+                                editable && !pending_now && credit_still_available,
+                                egui::Button::new("Confirm reset"),
+                            )
+                            .clicked()
+                        {
+                            self.reset_confirmation = None;
+                            self.start(Action::Reset(key, credit_id), ctx.clone());
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.reset_confirmation = None;
+                        }
+                    });
+                });
+        }
         ctx.request_repaint_after(Duration::from_secs(1));
     }
 }
+fn get_or_create_reset_intent<'a>(
+    intents: &'a mut std::collections::HashMap<String, PendingResetRequest>,
+    key: &str,
+    backend_pending: Option<PendingResetRequest>,
+    selected_credit: Option<String>,
+) -> &'a PendingResetRequest {
+    if let Some(pending) = backend_pending {
+        // The persisted backend request is authoritative, including when a prior
+        // local request never reached the backend or was replaced elsewhere.
+        intents.insert(key.to_owned(), pending);
+        return intents.get(key).expect("inserted backend reset intent");
+    }
+    intents
+        .entry(key.to_owned())
+        .or_insert_with(|| PendingResetRequest {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            credit_id: selected_credit,
+        })
+}
+
 fn selector(a: &Account) -> String {
     format!("{}:{}#{}", a.provider, a.email, a.org)
 }
@@ -431,4 +628,53 @@ fn selector_args(action: &'static str, key: String) -> (&'static str, Vec<String
     let provider = parts.next().unwrap_or_default().to_string();
     let selector = parts.next().unwrap_or_default().to_string();
     (action, vec!["--provider".into(), provider, selector])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::get_or_create_reset_intent;
+    use crate::protocol::PendingResetRequest;
+    use std::collections::HashMap;
+
+    #[test]
+    fn uncertain_reset_retry_reuses_the_confirmed_request_id_and_credit() {
+        let mut intents = HashMap::new();
+        let first =
+            get_or_create_reset_intent(&mut intents, "codex:a#org", None, Some("credit-7".into()))
+                .clone();
+        // Simulate a failed or ambiguous operation; retrying must keep the same id and credit.
+        let retry = get_or_create_reset_intent(&mut intents, "codex:a#org", None, None).clone();
+        assert!(!first.request_id.is_empty());
+        assert_eq!(first.request_id, retry.request_id);
+        assert_eq!(retry.credit_id.as_deref(), Some("credit-7"));
+    }
+
+    #[test]
+    fn backend_pending_request_wins_when_restarting_the_frontend() {
+        let mut intents = HashMap::new();
+        let pending = PendingResetRequest {
+            request_id: "11111111-1111-4111-8111-111111111111".into(),
+            credit_id: None,
+        };
+        let intent = get_or_create_reset_intent(&mut intents, "codex:a#org", Some(pending), None);
+        assert_eq!(intent.request_id, "11111111-1111-4111-8111-111111111111");
+    }
+
+    #[test]
+    fn backend_pending_request_replaces_a_local_intent_that_was_never_accepted() {
+        let mut intents = HashMap::from([(
+            "codex:a#org".into(),
+            PendingResetRequest {
+                request_id: "22222222-2222-4222-8222-222222222222".into(),
+                credit_id: Some("stale-credit".into()),
+            },
+        )]);
+        let backend = PendingResetRequest {
+            request_id: "11111111-1111-4111-8111-111111111111".into(),
+            credit_id: Some("authoritative-credit".into()),
+        };
+        let intent = get_or_create_reset_intent(&mut intents, "codex:a#org", Some(backend), None);
+        assert_eq!(intent.request_id, "11111111-1111-4111-8111-111111111111");
+        assert_eq!(intent.credit_id.as_deref(), Some("authoritative-credit"));
+    }
 }
