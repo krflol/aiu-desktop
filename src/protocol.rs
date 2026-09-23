@@ -36,6 +36,84 @@ pub struct Account {
     pub all_spent: bool,
     #[serde(default)]
     pub login: Login,
+    #[serde(default, rename = "bankedResets")]
+    pub banked_resets: Option<BankedResets>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BankedResets {
+    #[serde(default, rename = "availableCount")]
+    pub available_count: Option<u32>,
+    #[serde(default)]
+    pub credits: Option<Vec<BankedResetCredit>>,
+    #[serde(default, rename = "fetchedAt")]
+    pub fetched_at: String,
+    #[serde(default)]
+    pub stale: String,
+    #[serde(default)]
+    pub error: String,
+    #[serde(default, rename = "canRedeem")]
+    pub can_redeem: bool,
+    #[serde(default, rename = "pendingRequest")]
+    pub pending_request: Option<PendingResetRequest>,
+    #[serde(default, rename = "autoReset")]
+    pub auto_reset: bool,
+    #[serde(
+        default = "default_auto_reset_threshold",
+        rename = "autoResetThresholdPercent"
+    )]
+    pub auto_reset_threshold_percent: u8,
+    #[serde(default, rename = "autoResetStatus")]
+    pub auto_reset_status: String,
+}
+
+impl Default for BankedResets {
+    fn default() -> Self {
+        Self {
+            available_count: None,
+            credits: None,
+            fetched_at: String::new(),
+            stale: String::new(),
+            error: String::new(),
+            can_redeem: false,
+            pending_request: None,
+            auto_reset: false,
+            auto_reset_threshold_percent: default_auto_reset_threshold(),
+            auto_reset_status: String::new(),
+        }
+    }
+}
+
+fn default_auto_reset_threshold() -> u8 {
+    1
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BankedResetCredit {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default, rename = "resetType")]
+    pub reset_type: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default, rename = "grantedAt")]
+    pub granted_at: String,
+    #[serde(default, rename = "expiresAt")]
+    pub expires_at: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default, rename = "canRedeem")]
+    pub can_redeem: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PendingResetRequest {
+    #[serde(default, rename = "requestId")]
+    pub request_id: String,
+    #[serde(default, rename = "creditId")]
+    pub credit_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -143,11 +221,72 @@ mod tests {
             serde_json::from_str(include_str!("../tests/fixtures/frontend/empty.json"))
                 .expect("empty fixture");
         assert!(empty.is_empty());
+        let banked: Vec<Account> = serde_json::from_str(include_str!(
+            "../tests/fixtures/frontend/banked-resets.json"
+        ))
+        .expect("banked resets fixture");
+        assert_eq!(banked.len(), 2);
+        let available = banked[0]
+            .banked_resets
+            .as_ref()
+            .expect("available reset state");
+        assert_eq!(available.available_count, Some(3));
+        assert_eq!(
+            available
+                .credits
+                .as_ref()
+                .expect("loaded credit details")
+                .len(),
+            1
+        );
+        assert!(available.auto_reset);
+        assert!(available.credits.as_ref().unwrap()[0].can_redeem);
+        assert_eq!(available.auto_reset_threshold_percent, 5);
+        let pending = banked[1]
+            .banked_resets
+            .as_ref()
+            .expect("pending reset state");
+        assert_eq!(pending.available_count, None);
+        assert!(pending.credits.is_none());
+        assert_eq!(
+            pending.pending_request.as_ref().unwrap().request_id,
+            "12345678-1234-4234-8234-123456789abc"
+        );
+        assert!(!pending.auto_reset);
+        assert_eq!(pending.auto_reset_threshold_percent, 0);
         let _: Event =
             serde_json::from_str(include_str!("../tests/fixtures/frontend/cancelled.json"))
                 .expect("cancelled fixture");
         let _: Event =
             serde_json::from_str(include_str!("../tests/fixtures/frontend/failure.json"))
                 .expect("failure fixture");
+    }
+
+    #[test]
+    fn banked_reset_unknown_count_and_missing_details_stay_unknown() {
+        let account: Account = serde_json::from_str(r#"{"provider":"codex","bankedResets":{"availableCount":null,"credits":null,"fetchedAt":"","canRedeem":false,"autoReset":false,"future":true}}"#).unwrap();
+        let resets = account.banked_resets.unwrap();
+        assert_eq!(resets.available_count, None);
+        assert!(resets.credits.is_none());
+        assert!(!resets.auto_reset);
+        assert_eq!(resets.auto_reset_threshold_percent, 1);
+    }
+
+    #[test]
+    fn banked_reset_capped_credit_list_does_not_infer_count() {
+        let account: Account = serde_json::from_str(r#"{"bankedResets":{"availableCount":9,"credits":[{"id":"c1","canRedeem":true}],"canRedeem":true,"autoReset":true,"autoResetStatus":"enabled"}}"#).unwrap();
+        let resets = account.banked_resets.unwrap();
+        assert_eq!(resets.available_count, Some(9));
+        assert_eq!(resets.credits.unwrap().len(), 1);
+        assert!(resets.auto_reset);
+    }
+
+    #[test]
+    fn auto_reset_threshold_defaults_to_one_but_preserves_explicit_zero() {
+        let defaulted: BankedResets = serde_json::from_str(r#"{}"#).unwrap();
+        let zero: BankedResets =
+            serde_json::from_str(r#"{"autoResetThresholdPercent":0}"#).unwrap();
+        assert_eq!(defaulted.auto_reset_threshold_percent, 1);
+        assert_eq!(zero.auto_reset_threshold_percent, 0);
     }
 }

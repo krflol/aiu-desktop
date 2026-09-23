@@ -16,6 +16,8 @@ lifecycle; the upstream repository owns Go and SwiftUI.
 Archives use aiu-desktop-VERSION-OS-ARCH or aiu-cli-VERSION-OS-ARCH, with
 windows, linux, or macos and amd64 or arm64. Each has a .sha256 sidecar. Native
 macOS Go builds retain cgo for Keychain. Windows/Linux CLI binaries need no GUI.
+Archive names use the AIU distribution version (`0.2.0` for this release), while
+`aiu --version` reports the bundled Go backend version ([v0.3.0](https://github.com/getparable/aiu/releases/tag/v0.3.0)).
 
 ## Runtime requirements
 
@@ -46,7 +48,7 @@ authoritative. New Windows stores use the user's roaming configuration folder;
 Linux honors an absolute XDG_CONFIG_HOME; macOS keeps upstream's location.
 Windows defaults to current-user DPAPI and protected ACLs, macOS to Keychain,
 and Linux to owner-only files. AIU_STORE=file explicitly chooses file storage.
-The original full Rust fork's aiu-rs store is separate and is not migrated.
+The separate `aiu-rs` account store is not migrated.
 All imports, external CLI writes, cache limits, refresh ownership, and
 recommendations are handled by Go; the frontend implements no second policy.
 

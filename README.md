@@ -25,7 +25,7 @@ python3 install.py --cli-only            # Go CLI without a desktop
 ```
 
 Rust and CLI installs verify SHA-256 and extract into a new versioned directory.
-Use `--version v0.1.0` or `--prefix PATH` to choose the release and destination.
+Use `--version v0.2.0` or `--prefix PATH` to choose the release and destination.
 Swift uses Homebrew's paths and version management, so those options do not
 apply. The installer does not modify account stores, PATH, or Windows registry
 settings. Keep the bundled `aiu` and `aiu-desktop` executables together.
@@ -33,15 +33,36 @@ settings. Keep the bundled `aiu` and `aiu-desktop` executables together.
 ## Backend and development
 
 [`backend.json`](backend.json) pins the exact Go source used by packaging.
-Until [upstream PR #11](https://github.com/getparable/aiu/pull/11) merges, the pin
-points to the contributor's portable Go branch. Packages include its provenance
-in `BACKEND.txt`. The [versioned process contract](docs/frontend-contract.md)
+The upstream Go project now owns the portable backend and banked reset support,
+merged in [PR #11](https://github.com/getparable/aiu/pull/11) and
+[PR #13](https://github.com/getparable/aiu/pull/13). This release bundles
+[Go v0.3.0](https://github.com/getparable/aiu/releases/tag/v0.3.0); packages
+record its exact pinned revision in `BACKEND.txt`. The [versioned process contract](docs/frontend-contract.md)
 keeps frontend releases independent of backend implementation details.
 
 Cancel and Quit close pending browser waits and allow an already-started Go
 credential exchange to finish saving. Closing a browser tab itself cannot be
 detected. Close-to-tray is available when a tray host exists; without a Linux
 host the window remains reachable and closing it quits.
+
+## Banked Codex resets
+
+Codex cards show the reset balance and cached credit details. **Details / refresh**
+loads the provider's credit list. **Use a reset** asks for confirmation; uncertain
+results offer **Retry same request** to avoid spending another credit.
+
+Each Codex account has an **Auto reset** toggle, off by default, and a saved
+remaining-quota threshold from **0 to 99%**, defaulting to **1%**. Edit the percentage
+and choose **Save threshold**; zero means fully exhausted. Saving only the
+threshold preserves the enabled state. The shared Go backend checks fresh usage,
+uses an available banked reset, and waits for remaining quota to rise above both
+the current and prior-attempt thresholds before another automatic spend.
+It works while desktop/tray, CLI status, or watch collects usage, subject
+to the shared polling and provider cooldowns. Enabling it authorizes consumption
+of banked resets, which reset eligible five-hour/weekly limits and move the weekly
+reset date. See [reset policy and recovery](docs/banked-resets.md).
+
+## Build from source
 
 Build and test with Rust 1.88:
 
@@ -62,7 +83,7 @@ is no PATH lookup or environment override for selecting a backend. Fixture mode
 never reads real accounts. To package a pinned checkout:
 
 ```sh
-python3 scripts/package-desktop.py --backend-source ../aiu-go-windows --version 0.1.0 --output dist
+python3 scripts/package-desktop.py --backend-source ../aiu-go-windows --version 0.2.0 --output dist
 ```
 
 Native desktop bundles target Windows/Linux amd64 and macOS amd64/arm64. See
