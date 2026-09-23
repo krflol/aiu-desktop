@@ -1,6 +1,6 @@
 {
   "contract_version": 1,
-  "source_repository": "https://github.com/krflol/aiu-rs",
-  "revision": "b01552b5628ca275d47f43cdad1da3d21c29b4a5",
+  "source_repository": "https://github.com/getparable/aiu",
+  "revision": "62a6407067df3d1d435840fe876b87d019ebeaf3",
   "upstream": "getparable/aiu"
 }

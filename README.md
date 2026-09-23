@@ -25,7 +25,7 @@ python3 install.py --cli-only            # Go CLI without a desktop
 ```
 
 Rust and CLI installs verify SHA-256 and extract into a new versioned directory.
-Use `--version v0.1.0` or `--prefix PATH` to choose the release and destination.
+Use `--version v0.2.0` or `--prefix PATH` to choose the release and destination.
 Swift uses Homebrew's paths and version management, so those options do not
 apply. The installer does not modify account stores, PATH, or Windows registry
 settings. Keep the bundled `aiu` and `aiu-desktop` executables together.
@@ -33,10 +33,11 @@ settings. Keep the bundled `aiu` and `aiu-desktop` executables together.
 ## Backend and development
 
 [`backend.json`](backend.json) pins the exact Go source used by packaging.
-[Upstream PR #11](https://github.com/getparable/aiu/pull/11) merged the portable Go
-backend. The pin includes [banked reset support in upstream PR #13](https://github.com/getparable/aiu/pull/13)
-based on upstream v0.2.0. Packages include its provenance
-in `BACKEND.txt`. The [versioned process contract](docs/frontend-contract.md)
+The upstream Go project now owns the portable backend and banked reset support,
+merged in [PR #11](https://github.com/getparable/aiu/pull/11) and
+[PR #13](https://github.com/getparable/aiu/pull/13). This release bundles
+[Go v0.3.0](https://github.com/getparable/aiu/releases/tag/v0.3.0); packages
+record its exact pinned revision in `BACKEND.txt`. The [versioned process contract](docs/frontend-contract.md)
 keeps frontend releases independent of backend implementation details.
 
 Cancel and Quit close pending browser waits and allow an already-started Go
@@ -51,7 +52,7 @@ loads the provider's credit list. **Use a reset** asks for confirmation; uncerta
 results offer **Retry same request** to avoid spending another credit.
 
 Each Codex account has an **Auto reset** toggle, off by default, and a saved
-remaining-quota threshold from **0–99%**, defaulting to **1%**. Edit the percentage
+remaining-quota threshold from **0 to 99%**, defaulting to **1%**. Edit the percentage
 and choose **Save threshold**; zero means fully exhausted. Saving only the
 threshold preserves the enabled state. The shared Go backend checks fresh usage,
 uses an available banked reset, and waits for remaining quota to rise above both
